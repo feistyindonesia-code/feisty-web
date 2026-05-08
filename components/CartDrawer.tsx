@@ -1,10 +1,12 @@
 'use client';
 
+import { useRouter } from 'next/navigation';
 import { motion, AnimatePresence } from 'framer-motion';
 import { useCartStore } from '@/lib/store';
 import { toast } from 'react-hot-toast';
 
 export default function CartDrawer() {
+  const router = useRouter();
   const { items, isOpen, closeCart, removeItem, updateQuantity, getTotalPrice, clearCart } =
     useCartStore();
 
@@ -16,9 +18,11 @@ export default function CartDrawer() {
       toast.error('Keranjang kosong!');
       return;
     }
-    // Akan diimplementasi di checkout page
-    toast.success('Checkout即将到来!');
-    // closeCart();
+    closeCart();
+    toast.success('Redirect ke halaman pembayaran...');
+    setTimeout(() => {
+      router.push('/checkout');
+    }, 300);
   };
 
   return (
