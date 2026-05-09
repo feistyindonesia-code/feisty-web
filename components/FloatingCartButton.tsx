@@ -13,6 +13,7 @@ export default function FloatingCartButton() {
       animate={{ scale: 1 }}
       whileHover={{ scale: 1.05 }}
       whileTap={{ scale: 0.95 }}
+      transition={{ type: 'spring', damping: 20 }}
       onClick={openCart}
       className="fixed bottom-6 right-6 z-40 bg-orange-500 text-white p-4 rounded-full shadow-lg hover:bg-orange-600 transition-colors"
       aria-label="Open cart"
@@ -27,6 +28,8 @@ export default function FloatingCartButton() {
         <motion.span
           initial={{ scale: 0 }}
           animate={{ scale: 1 }}
+          transition={{ type: 'spring', damping: 20 }}
+          suppressHydrationWarning
           className="absolute -top-2 -right-2 bg-red-500 text-white text-xs font-bold w-6 h-6 flex items-center justify-center rounded-full border-2 border-white"
         >
           {totalItems > 99 ? '99+' : totalItems}

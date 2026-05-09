@@ -1,6 +1,16 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { createClient } from '@supabase/supabase-js';
-import { createPayment } from '@/lib/ipaymu';
+import { createPayment, isIpaymuConfigured, isSandboxMode } from '@/lib/ipaymu';
+
+// Initialize Supabase
+const supabaseUrl = process.env.NEXT_PUBLIC_SUPABASE_URL;
+const supabaseAnonKey = process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY;
+
+if (!supabaseUrl || !supabaseAnonKey) {
+  throw new Error('Missing Supabase environment variables');
+}
+
+const supabase = createClient(supabaseUrl, supabaseAnonKey);
 
 type OrderItemInput = {
   id: string;
@@ -19,16 +29,6 @@ type OrderRequestBody = {
   notes?: string;
 };
 
-// Initialize Supabase
-const supabaseUrl = process.env.NEXT_PUBLIC_SUPABASE_URL;
-const supabaseAnonKey = process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY;
-
-if (!supabaseUrl || !supabaseAnonKey) {
-  throw new Error('Missing Supabase environment variables');
-}
-
-const supabase = createClient(supabaseUrl, supabaseAnonKey);
-
 export async function POST(request: NextRequest) {
   try {
     const body: OrderRequestBody = await request.json();
@@ -38,7 +38,7 @@ export async function POST(request: NextRequest) {
       customer_address,
       order_type,
       items,
-      payment_method = 'qris',
+      payment_method = 'cash',
       notes,
     } = body;
 
@@ -96,21 +96,11 @@ export async function POST(request: NextRequest) {
       console.error('Order items error:', itemsError);
     }
 
-    // Create payment with ipaymu if needed
-    if (payment_method !== 'cash') {
-      const ipaymuApiKey = process.env.IPAYMU_API_KEY;
-      const ipaymuVa = process.env.IPAYMU_VA;
-      const isProduction = process.env.NODE_ENV === 'production';
+    // Payment processing
+    if (payment_method !== 'cash' && isIpaymuConfigured()) {
+      const isSandbox = isSandboxMode();
       const appUrl = process.env.NEXT_PUBLIC_APP_URL || 'http://localhost:3010';
 
-      if (!ipaymuApiKey || !ipaymuVa) {
-        return NextResponse.json(
-          { error: 'Payment gateway not configured' },
-          { status: 500 }
-        );
-      }
-
-      // Prepare ipaymu request
       const products = items.map((item) => item.name);
       const quantities = items.map((item) => item.quantity.toString());
       const prices = items.map((item) => item.price.toString());
@@ -126,15 +116,18 @@ export async function POST(request: NextRequest) {
         referenceId: order.id,
         buyerName: customer_name,
         buyerPhone: customer_phone,
-        buyerEmail: '', // optional
+        buyerEmail: '',
       };
 
       try {
+        const ipaymuApiKey = process.env.IPAYMU_API_KEY!;
+        const ipaymuVa = process.env.IPAYMU_VA!;
+
         const ipaymuResponse = await createPayment(
           paymentRequest,
           ipaymuApiKey,
           ipaymuVa,
-          isProduction
+          isSandbox
         );
 
         if (ipaymuResponse.Status === '0') {
@@ -156,24 +149,53 @@ export async function POST(request: NextRequest) {
             },
           });
         } else {
-          throw new Error(ipaymuResponse.Message);
+          throw new Error(ipaymuResponse.Message || 'iPaymu payment failed');
         }
       } catch (paymentError) {
         console.error('Payment creation error:', paymentError);
-        return NextResponse.json(
-          { error: 'Failed to create payment: ' + (paymentError as Error).message },
-          { status: 500 }
-        );
+        // Fallback to cash if payment fails
+        return NextResponse.json({
+          success: true,
+          order,
+          payment: {
+            paymentUrl: null,
+            message: 'Pembayaran gagal. Silakan bayar di counter (cash).',
+            fallback: true,
+          },
+        });
       }
     }
 
-    // Cash payment - return order directly
+    // Cash payment / iPaymu not configured / non-cash but not set up
+    if (payment_method === 'cash' || !isIpaymuConfigured()) {
+      // If they chose QRIS/VA but iPaymu not configured, note it
+      const note = payment_method !== 'cash' && !isIpaymuConfigured()
+        ? `Bayar via ${payment_method === 'qris' ? 'QRIS' : 'VA'} (menunggu konfirmasi)`
+        : (notes || null);
+
+      // Update order note
+      await supabase
+        .from('orders')
+        .update({ notes: note })
+        .eq('id', order.id);
+
+      return NextResponse.json({
+        success: true,
+        order,
+        payment: {
+          paymentUrl: null,
+          message: 'Cash payment - bayar di counter',
+        },
+      });
+    }
+
+    // Should not reach here, but fallback
     return NextResponse.json({
       success: true,
       order,
       payment: {
         paymentUrl: null,
-        message: 'Cash payment - please pay at counter',
+        message: 'Konfirmasi pembayaran via WhatsApp.',
       },
     });
   } catch (error) {

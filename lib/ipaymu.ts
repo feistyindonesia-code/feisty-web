@@ -34,6 +34,12 @@ export class IpaymuError extends Error {
   }
 }
 
+export function getIpaymuBaseUrl(isSandbox: boolean = true): string {
+  return isSandbox
+    ? 'https://sandbox.ipaymu.com/api/v2/payment'
+    : 'https://my.ipaymu.com/api/v2/payment';
+}
+
 export function generateSignature(
   body: IpaymuPaymentRequest,
   va: string,
@@ -50,12 +56,9 @@ export async function createPayment(
   body: IpaymuPaymentRequest,
   apiKey: string,
   va: string,
-  isProduction: boolean = false
+  isSandbox: boolean = true
 ): Promise<IpaymuPaymentResponse> {
-  const url = isProduction
-    ? 'https://my.ipaymu.com/api/v2/payment'
-    : 'https://sandbox.ipaymu.com/api/v2/payment';
-
+  const url = getIpaymuBaseUrl(isSandbox);
   const timestamp = new Date().toISOString().replace(/[^0-9]/g, '').slice(0, 14);
   const signature = generateSignature(body, va, apiKey);
 
@@ -118,4 +121,25 @@ export function verifyCallbackSignature(
   const computedSignature = CryptoJS.HmacSHA256(stringToVerify, apiKey).toString();
 
   return computedSignature === Signature;
+}
+
+/**
+ * Cek apakah credential iPaymu valid dan siap digunakan
+ */
+export function isIpaymuConfigured(): boolean {
+  const apiKey = process.env.IPAYMU_API_KEY;
+  const va = process.env.IPAYMU_VA;
+
+  if (!apiKey || !va) return false;
+  if (apiKey.startsWith('your-') || va.startsWith('your-')) return false;
+  if (apiKey === 'your-sandbox-api-key' || va === 'your-sandbox-va-number') return false;
+
+  return true;
+}
+
+/**
+ * Cek apakah sedang di mode sandbox
+ */
+export function isSandboxMode(): boolean {
+  return process.env.IPAYMU_SANDBOX !== 'false';
 }
